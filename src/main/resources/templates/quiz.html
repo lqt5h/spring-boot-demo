@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Описание теста</title>
+</head>
+<body>
+<h1 th:text="${quiz.title}"></h1>
+<p th:text="${quiz.description}"></p>
+<form th:action="@{/quiz/{id}/start(id=${quiz.id})}" method="post">
+    <label>Введите ваше имя: <input type="text" name="userName"/></label>
+    <button type="submit">Начать</button>
+</form>
+</body>
+</html>

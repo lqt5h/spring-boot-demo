@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Результаты</title>
+</head>
+<body>
+<h1>Ваш результат: <span th:text="${attempt.score} + '%'"></span></h1>
+<p>Тест: <span th:text="${attempt.quiz.title}"></span></p>
+<a th:href="@{/results/{id}/export-pdf(id=${attempt.id})}">Скачать PDF</a>
+</body>
+</html>

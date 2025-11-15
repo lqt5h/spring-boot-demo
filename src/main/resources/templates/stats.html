@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Статистика</title>
+</head>
+<body>
+<h1>Ваши попытки</h1>
+<table>
+    <tr>
+        <th>Тест</th>
+        <th>Балл</th>
+        <th>Дата</th>
+    </tr>
+    <tr th:each="attempt : ${attempts}">
+        <td th:text="${attempt.quiz.title}"></td>
+        <td th:text="${attempt.score}"></td>
+        <td th:text="${attempt.finishedAt}"></td>
+    </tr>
+</table>
+</body>
+</html>

@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Управление тестами</title>
+</head>
+<body>
+<h1>Список тестов</h1>
+<ul>
+    <li th:each="quiz : ${quizzes}" th:text="${quiz.title}"></li>
+</ul>
+<!-- Добавить форму для создания/редактирования -->
+</body>
+</html>

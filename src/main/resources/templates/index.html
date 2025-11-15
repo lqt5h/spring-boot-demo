@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Список тестов</title>
+</head>
+<body>
+<h1>Доступные тесты</h1>
+<ul>
+    <li th:each="quiz : ${quizzes}">
+        <a th:href="@{/quiz/{id}(id=${quiz.id})}" th:text="${quiz.title}"></a>
+    </li>
+</ul>
+<a href="/login">Войти</a> | <a href="/register">Зарегистрироваться</a>
+</body>
+</html>
