@@ -67,8 +67,9 @@ public class SecurityConfig {
                         .hasRole("ADMIN")
 
                         // Попытки
-                        .requestMatchers("/attempts/**")
+                        .requestMatchers("/api/attempts/**")
                         .hasAnyRole("USER", "TEACHER", "ADMIN")
+
 
                         // Пользователи и прогресс
                         // ВАЖНО: без "**" посередине, только один сегмент перед progress

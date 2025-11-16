@@ -17,7 +17,8 @@ public class AttemptService {
     private final UserService userService;
 
     @Autowired
-    public AttemptService(AttemptRepository attemptRepository, UserService userService) {
+    public AttemptService(AttemptRepository attemptRepository,
+                          UserService userService) {
         this.attemptRepository = attemptRepository;
         this.userService = userService;
     }
@@ -25,17 +26,20 @@ public class AttemptService {
     // Начать новую попытку
     public Attempt startAttempt(Long userId, Long quizId) {
         User user = userService.getUserById(userId);
+
         Attempt attempt = new Attempt();
         attempt.setUser(user);
         attempt.setQuizId(quizId);
         attempt.setDetails("Started at " + LocalDateTime.now());
+
         return attemptRepository.save(attempt);
     }
 
-    // Завершить попытку
-    public Attempt submitAttempt(Long attemptId, Map<Long, Long> answers) {
+    // Завершить попытку и посчитать баллы
+    public Attempt submitAttempt(Long attemptId, Map<String, Object> answers) {
         Attempt attempt = attemptRepository.findById(attemptId)
-                .orElseThrow(() -> new RuntimeException("Attempt not found with id: " + attemptId));
+                .orElseThrow(() ->
+                        new RuntimeException("Attempt not found with id: " + attemptId));
 
         long score = calculateScore(answers);
         attempt.setScore(score);
@@ -45,29 +49,24 @@ public class AttemptService {
         return attemptRepository.save(attempt);
     }
 
-    // Получить попытку по ID
-    public Attempt getAttemptById(Long attemptId) {
-        return attemptRepository.findById(attemptId)
-                .orElseThrow(() -> new RuntimeException("Attempt not found with id: " + attemptId));
-    }
-
-    // Получить все попытки пользователя
-    public List<Attempt> getUserAttempts(Long userId) {
-        User user = userService.getUserById(userId);
-        return attemptRepository.findByUser(user);
-    }
-
-    // Сохранить попытку
-    public Attempt saveAttempt(Attempt attempt, Long userId) {
-        User user = userService.getUserById(userId);
-        attempt.setUser(user);
-        return attemptRepository.save(attempt);
-    }
-
-    // Простейший подсчёт баллов
-    private long calculateScore(Map<Long, Long> answers) {
+    // Простая логика подсчёта баллов
+    private long calculateScore(Map<String, Object> answers) {
         return answers.entrySet().stream()
-                .filter(entry -> entry.getValue().equals(entry.getKey() + 1))
+                .filter(entry ->
+                        entry.getValue() != null &&
+                                entry.getValue().equals(entry.getKey() + 1))
                 .count();
+    }
+
+    // Получить попытку по id
+    public Attempt getAttemptById(Long id) {
+        return attemptRepository.findById(id)
+                .orElseThrow(() ->
+                        new RuntimeException("Attempt not found with id: " + id));
+    }
+
+    // Все попытки пользователя
+    public List<Attempt> getUserAttempts(Long userId) {
+        return attemptRepository.findByUserId(userId);
     }
 }

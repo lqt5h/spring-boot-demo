@@ -34,155 +34,174 @@ public class QuizService {
         this.answerOptionRepository = answerOptionRepository;
     }
 
+    // ================= БАЗОВЫЕ ОПЕРАЦИИ =================
+
+    // Все викторины
     public List<Quiz> getAllQuizzes() {
         return quizRepository.findAll();
     }
 
+    // Викторина по id
     public Quiz getQuizById(Long id) {
         return quizRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Quiz not found"));
+                .orElseThrow(() -> new IllegalArgumentException("Quiz not found with id: " + id));
     }
 
+    // Создать викторину
     public Quiz createQuiz(Quiz quiz) {
-        quiz.setIsLocked(false);
         return quizRepository.save(quiz);
     }
 
+    // Обновить викторину
     public Quiz updateQuiz(Long id, Quiz updatedQuiz) {
-        Quiz quiz = getQuizById(id);
-        quiz.setTitle(updatedQuiz.getTitle());
-        quiz.setDescription(updatedQuiz.getDescription());
-        quiz.setAllowMultipleAttempts(updatedQuiz.isAllowMultipleAttempts());
-        if (updatedQuiz.isIsLocked()) {
-            quiz.setIsLocked(true);
+        Quiz existing = getQuizById(id);
+
+        if (existing.isIsLocked()) {
+            throw new IllegalStateException("Quiz is locked and cannot be modified");
         }
-        return quizRepository.save(quiz);
+
+        existing.setTitle(updatedQuiz.getTitle());
+        existing.setDescription(updatedQuiz.getDescription());
+        existing.setAllowMultipleAttempts(updatedQuiz.isAllowMultipleAttempts());
+
+        return quizRepository.save(existing);
     }
 
+    // Удалить викторину
     public void deleteQuiz(Long id) {
+        if (!quizRepository.existsById(id)) {
+            throw new IllegalArgumentException("Quiz not found with id: " + id);
+        }
         quizRepository.deleteById(id);
     }
 
-    @Transactional(readOnly = true)
+    // ================= СТАТИСТИКА И ТОП РЕЗУЛЬТАТЫ =================
+
+    // Статистика по викторине
     public Map<String, Object> getQuizStatistics(Long quizId) {
-        Quiz quiz = getQuizById(quizId);
         List<Attempt> attempts = attemptRepository.findByQuizId(quizId);
-
-        Map<String, Object> result = new HashMap<>();
-
-        if (attempts == null || attempts.isEmpty()) {
-            result.put("quizId", quizId);
-            result.put("quizTitle", quiz.getTitle());
-            result.put("totalAttempts", 0L);
-            result.put("uniqueUsers", 0L);
-            result.put("averageScore", 0.0);
-            return result;
-        }
 
         long totalAttempts = attempts.size();
         long uniqueUsers = attempts.stream()
                 .map(a -> a.getUser().getId())
                 .distinct()
                 .count();
+
         double averageScore = attempts.stream()
-                .map(Attempt::getScore)           // score = long
-                .mapToLong(Long::longValue)
+                .mapToLong(Attempt::getScore)
                 .average()
                 .orElse(0.0);
 
-        result.put("quizId", quizId);
-        result.put("quizTitle", quiz.getTitle());
-        result.put("totalAttempts", totalAttempts);
-        result.put("uniqueUsers", uniqueUsers);
-        result.put("averageScore",
-                Math.round(averageScore * 100.0) / 100.0);
+        Map<String, Object> stats = new HashMap<>();
+        stats.put("quizId", quizId);
+        stats.put("totalAttempts", totalAttempts);
+        stats.put("uniqueUsers", uniqueUsers);
+        stats.put("averageScore", averageScore);
 
-        return result;
+        return stats;
     }
 
-    @Transactional(readOnly = true)
+    // Топ результатов по викторине
     public List<Map<String, Object>> getTopScores(Long quizId, int limit) {
-        return attemptRepository.findByQuizId(quizId).stream()
+        List<Attempt> attempts = attemptRepository.findByQuizId(quizId);
+
+        return attempts.stream()
                 .sorted((a1, a2) -> Long.compare(a2.getScore(), a1.getScore()))
                 .limit(limit)
-                .map(attempt -> {
-                    Map<String, Object> map = new HashMap<>();
-                    map.put("attemptId", attempt.getId());
-                    map.put("username", attempt.getUser().getUsername());
-                    map.put("score", attempt.getScore());
-                    return map;
+                .map(a -> {
+                    Map<String, Object> m = new HashMap<>();
+                    m.put("attemptId", a.getId());
+                    m.put("userId", a.getUser().getId());
+                    m.put("username", a.getUser().getUsername());
+                    m.put("score", a.getScore());
+                    return m;
                 })
                 .collect(Collectors.toList());
     }
 
+    // ================= ДУБЛИРОВАНИЕ И БЛОКИРОВКА =================
+
+    // Дублировать викторину вместе с вопросами и вариантами
     @Transactional
-    public Quiz lockQuizIfHasAttempts(Long quizId) {
-        Quiz quiz = getQuizById(quizId);
-        List<Attempt> attempts = attemptRepository.findByQuizId(quizId);
-        if (attempts != null && !attempts.isEmpty()) {
-            quiz.setIsLocked(true);
-            quizRepository.save(quiz);
-        }
-        return quiz;
-    }
+    public Quiz duplicateQuiz(Long quizId) {
+        Quiz original = getQuizById(quizId);
 
-    @Transactional(readOnly = true)
-    public Map<String, Object> getUserProgressReport(Long userId) {
-        List<Attempt> userAttempts = attemptRepository.findByUserId(userId);
+        Quiz copy = new Quiz();
+        copy.setTitle(original.getTitle() + " (Copy)");
+        copy.setDescription(original.getDescription());
+        copy.setAllowMultipleAttempts(original.isAllowMultipleAttempts());
+        copy.setIsLocked(false);
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("userId", userId);
+        Quiz savedCopy = quizRepository.save(copy);
 
-        if (userAttempts == null || userAttempts.isEmpty()) {
-            result.put("totalAttempts", 0L);
-            result.put("averageScore", 0.0);
-            return result;
-        }
+        List<Question> questions = questionRepository.findByQuizId(original.getId());
+        for (Question q : questions) {
+            Question newQ = new Question();
+            newQ.setQuiz(savedCopy);
+            newQ.setText(q.getText());
+            Question savedQ = questionRepository.save(newQ);
 
-        long totalAttempts = userAttempts.size();
-
-        double overallAverage = userAttempts.stream()
-                .map(Attempt::getScore)           // long
-                .mapToLong(Long::longValue)
-                .average()
-                .orElse(0.0);
-
-        result.put("totalAttempts", totalAttempts);
-        result.put("averageScore",
-                Math.round(overallAverage * 100.0) / 100.0);
-
-        return result;
-    }
-
-    @Transactional
-    public Quiz duplicateQuiz(Long sourceQuizId) {
-        Quiz sourceQuiz = getQuizById(sourceQuizId);
-
-        Quiz newQuiz = new Quiz();
-        newQuiz.setTitle(sourceQuiz.getTitle() + " (Copy)");
-        newQuiz.setDescription(sourceQuiz.getDescription());
-        newQuiz.setIsLocked(false);
-        newQuiz.setAllowMultipleAttempts(sourceQuiz.isAllowMultipleAttempts());
-        Quiz savedQuiz = quizRepository.save(newQuiz);
-
-        List<Question> sourceQuestions = questionRepository.findByQuizId(sourceQuizId);
-        for (Question sourceQuestion : sourceQuestions) {
-            Question newQuestion = new Question();
-            newQuestion.setText(sourceQuestion.getText());
-            newQuestion.setQuiz(savedQuiz);
-            Question savedQuestion = questionRepository.save(newQuestion);
-
-            List<AnswerOption> sourceOptions =
-                    answerOptionRepository.findByQuestionId(sourceQuestion.getId());
-            for (AnswerOption sourceOption : sourceOptions) {
-                AnswerOption newOption = new AnswerOption();
-                newOption.setText(sourceOption.getText());
-                newOption.setCorrect(sourceOption.isCorrect());
-                newOption.setQuestion(savedQuestion);
-                answerOptionRepository.save(newOption);
+            List<AnswerOption> options = answerOptionRepository.findByQuestionId(q.getId());
+            for (AnswerOption opt : options) {
+                AnswerOption newOpt = new AnswerOption();
+                newOpt.setQuestion(savedQ);
+                newOpt.setText(opt.getText());
+                newOpt.setCorrect(opt.isCorrect());
+                answerOptionRepository.save(newOpt);
             }
         }
 
-        return savedQuiz;
+        return savedCopy;
+    }
+
+    // Жёсткая блокировка викторины
+    @Transactional
+    public Quiz lockQuiz(Long quizId) {
+        Quiz quiz = getQuizById(quizId);
+        quiz.setIsLocked(true);
+        return quizRepository.save(quiz);
+    }
+
+    // Блокировка, если есть попытки (опционально)
+    @Transactional
+    public void lockQuizIfHasAttempts(Long quizId) {
+        Quiz quiz = getQuizById(quizId);
+        List<Attempt> attempts = attemptRepository.findByQuizId(quizId);
+
+        if (!attempts.isEmpty()) {
+            quiz.setIsLocked(true);
+            quizRepository.save(quiz);
+        }
+    }
+
+    // ================= ОТЧЁТ ПО ПРОГРЕССУ ПОЛЬЗОВАТЕЛЯ =================
+
+    public Map<String, Object> getUserProgressReport(Long userId) {
+        List<Attempt> attempts = attemptRepository.findByUserId(userId);
+
+        long totalAttempts = attempts.size();
+        long quizzesTried = attempts.stream()
+                .map(Attempt::getQuizId)
+                .distinct()
+                .count();
+
+        double averageScore = attempts.stream()
+                .mapToLong(Attempt::getScore)
+                .average()
+                .orElse(0.0);
+
+        long maxScore = attempts.stream()
+                .mapToLong(Attempt::getScore)
+                .max()
+                .orElse(0L);
+
+        Map<String, Object> report = new HashMap<>();
+        report.put("userId", userId);
+        report.put("totalAttempts", totalAttempts);
+        report.put("quizzesTried", quizzesTried);
+        report.put("averageScore", averageScore);
+        report.put("maxScore", maxScore);
+
+        return report;
     }
 }
