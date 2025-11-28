@@ -1,4 +1,7 @@
 package com.example.demo.entity;
 
-public class SessionStatus {
+public enum SessionStatus {
+    ACTIVE,
+    REVOKED,
+    EXPIRED
 }
