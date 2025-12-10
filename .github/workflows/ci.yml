@@ -27,6 +27,18 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > src/main/resources/keystore/server_keystore_1BIB23392.p12
           ls -la src/main/resources/keystore/
 
+      - name: Export env vars
+        run: |
+          echo "SERVER_SSL_KEYSTORE_PATH=classpath:keystore/server_keystore_1BIB23392.p12" >> $GITHUB_ENV
+          echo "SERVER_SSL_KEY_ALIAS=quiz-api-server" >> $GITHUB_ENV
+          echo "SERVER_PORT=8080" >> $GITHUB_ENV
+          echo "DB_URL=${{ secrets.DB_URL }}" >> $GITHUB_ENV
+          echo "DB_USERNAME=${{ secrets.DB_USERNAME }}" >> $GITHUB_ENV
+          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> $GITHUB_ENV
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
+          echo "JWT_ACCESS_TOKEN_EXPIRATION=${{ secrets.JWT_ACCESS_TOKEN_EXPIRATION }}" >> $GITHUB_ENV
+          echo "JWT_REFRESH_TOKEN_EXPIRATION=${{ secrets.JWT_REFRESH_TOKEN_EXPIRATION }}" >> $GITHUB_ENV
+
       - name: Run tests
         run: mvn clean test -B
 
