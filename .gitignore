@@ -34,3 +34,4 @@ build/
 
 # local environment variables
 .env
+.DS_Store
