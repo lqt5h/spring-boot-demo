@@ -72,7 +72,6 @@ public class SecurityConfig {
 
 
                         // Пользователи и прогресс
-                        // ВАЖНО: без "**" посередине, только один сегмент перед progress
                         .requestMatchers(HttpMethod.GET, "/users/*/progress")
                         .hasAnyRole("USER", "TEACHER", "ADMIN")
                         .requestMatchers(HttpMethod.GET, "/users/**")
