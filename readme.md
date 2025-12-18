@@ -1,82 +1,94 @@
-# Quiz API (Spring Boot + TLS)
+# Quiz API (Spring Boot)
 
-Учебный REST‑сервис викторины на Spring Boot с поддержкой HTTPS/TLS, JWT‑аутентификации и CI/CD на GitHub Actions.
+REST API для управления квизами (викторинами): квизы, вопросы, варианты ответов, попытки прохождения и роли USER/TEACHER/ADMIN. [file:109]  
+Проект поддерживает **два** способа аутентификации для защищённых эндпоинтов: Bearer JWT и HTTP Basic. [file:109]
 
 ## Возможности
 
-- Регистрация и аутентификация пользователей по JWT.
-- Работа только по HTTPS с самоподписанной цепочкой сертификатов (Root CA → Intermediate CA → Server).
-- Эндпоинты для работы с пользователями и викториной (пример: `/hello`, `/api/users/{id}`, `/h2-console`).
-- Конфигурация через переменные окружения и `.env` — паролей и ключей нет в репозитории.
-- Автоматическая сборка и публикация JAR‑артефакта в GitHub Actions.
+- CRUD для квизов, вопросов и вариантов ответов. [file:109]
+- Прохождение квиза (attempts) и получение результатов/аналитики (см. Postman бизнес-операции). [file:103]
+- Auth endpoints (`/auth/*`) выдают access/refresh токены, а refresh-токены ведутся как сессии в БД и ротируются при refresh. [file:107]
 
-## Технологии
+## Запуск
 
-- Java 21, Spring Boot 3
-- Spring Web, Spring Security, Spring Data JPA
-- PostgreSQL (основная БД), H2 in‑memory (тестовый профиль)
-- Maven
-- GitHub Actions (CI)
+### Локально (Maven)
+mvn clean test
+mvn spring-boot:run
 
-## Конфигурация окружения
+Базовый URL (по умолчанию): `http://localhost:8080` или `https://localhost:8080` — зависит от настроек SSL в `application.properties`. [file:110]
 
-Все чувствительные данные задаются через переменные окружения или файл `.env` в корне проекта. Файл `.env` добавлен в `.gitignore` и не коммитится в репозиторий.
+## Аутентификация
 
-В `application.properties` используются только ссылки на переменные
+### Публичные endpoints
+Без аутентификации доступны:
+- `POST /auth/register`, `POST /auth/login`, `POST /auth/refresh` [file:109]
+- `GET /hello` [file:109]
+- `GET /h2-console/**` [file:109]
 
+### Пара токенов (login/refresh)
+Ответ DTO содержит: `accessToken`, `refreshToken`, `tokenType` (обычно `Bearer`), `accessTokenExpiresIn`. [file:106]
 
-Тестовый профиль (`src/test/resources/application-test.properties`) использует H2 in‑memory и отключённый TLS.
+#### Login
+curl -k -X POST "https://localhost:8080/auth/login"
+-H "Content-Type: application/json"
+-d '{"username":"teacher","password":"Passwd0rd1!"}
 
-## Локальный запуск
+#### Refresh (refresh-rotation)
+Refresh-логика:
+- refresh JWT валидируется,
+- сессия ищется в БД по refreshToken,
+- если активна и не истекла — старая помечается `REVOKED`, создаётся новая сессия и новая пара токенов. [file:107]
 
-1. Установить Java 21 и Maven.
-2. Создать файл `.env` по примеру выше.
-3. Убедиться, что в `/etc/hosts` есть запись:
+curl -k -X POST "https://localhost:8080/auth/refresh"
+-H "Content-Type: application/json"
+-d '{"refreshToken":"<REFRESH_TOKEN>"}'
 
+### Доступ к защищённым endpoints
 
-Тестовый профиль (`src/test/resources/application-test.properties`) использует H2 in‑memory и отключённый TLS.
+#### Вариант A: Bearer JWT
+Так как в `SecurityConfig` включён `oauth2ResourceServer().jwt(...)`, защищённые эндпоинты могут принимать `Authorization: Bearer <accessToken>`. [file:109]
 
-## Локальный запуск
+Пример:
+curl -k "https://localhost:8080/api/quizzes"
+-H "Authorization: Bearer <ACCESS_TOKEN>"
 
-1. Установить Java 21 и Maven.
-2. Создать файл `.env` по примеру выше.
-3. Убедиться, что в `/etc/hosts` есть запись:
-   127.0.0.1 quiz-api.local
-4. Запустить PostgreSQL и создать БД `quizdb` (или скорректировать `DB_URL` в `.env`).
-5. Собрать и запустить приложение:
-   mvn clean test
-   mvn spring-boot:run
+#### Вариант B: HTTP Basic
+Так как в `SecurityConfig` также включён `httpBasic()`, можно обращаться и через basic-аутентификацию. [file:109]
 
-6. Открыть в браузере:
-- `https://quiz-api.local:8080` — стартовая страница,
-- `https://quiz-api.local:8080/hello` — тестовый endpoint,
-- `https://quiz-api.local:8080/h2-console` — консоль H2 (для тестового профиля).
+Пример:
+curl -k -u teacher:Passwd0rd1! "https://localhost:8080/api/quizzes"
 
-## TLS и сертификаты
+## Роли и доступ
 
-Цепочка сертификатов генерируется локально с помощью OpenSSL и содержит идентификатор студента:
+Точные ограничения по ролям/методам задаются в `SecurityConfig` (например, часть операций доступна только ADMIN или TEACHER). [file:109]  
+Если тестируешь через Postman — удобнее сначала получить токены через `/auth/login`, затем использовать `Bearer` (или включить basic auth для конкретных запросов). [file:109]
 
-- `root_ca_1BIB23392.crt` — корневой сертификат (Root CA).
-- `intermediate_ca_1BIB23392.crt` — промежуточный центр сертификации (Intermediate CA).
-- `server_1BIB23392.crt` — серверный сертификат для домена `quiz-api.local`.
+## Админ: refresh-сессии
 
-Root CA устанавливается в доверенные корневые центры ОС/браузера, что позволяет открывать `https://quiz-api.local:8080` без предупреждений о недоверенном сертификате.
+### GET /admin/sessions
+Контроллер `AdminSessionController` возвращает список refresh-сессий из БД. [file:108]  
+В ответе есть поля: `id`, `userId`, `refreshToken`, `status`, `createdAt`, `expiresAt`, `revokedAt`. [file:108]
 
-## CI/CD (GitHub Actions)
-
-Workflow `.github/workflows/ci.yml` выполняет:
-
-- восстановление TLS keystore из секретов репозитория:
-- `KEYSTORE_BASE64` — содержимое PKCS#12 в Base64;
-- `KEYSTORE_PASSWORD` — пароль keystore;
-- экспорт секретов окружения:
-- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`,
-- `JWT_SECRET`, `JWT_ACCESS_TOKEN_EXPIRATION`, `JWT_REFRESH_TOKEN_EXPIRATION`;
-- запуск тестов: `mvn clean test`;
-- сборку артефакта: `mvn clean package -DskipTests`;
-- загрузку JAR‑файла `quiz-api-jar` в раздел Artifacts.
-
-Все пароли, токены и ключи хранятся только в `.env` (локально) и GitHub Secrets (в CI), что предотвращает утечку чувствительных данных через репозиторий.
+Пример (Bearer):
+curl -k "https://localhost:8080/admin/sessions"
+-H "Authorization: Bearer <ACCESS_TOKEN>"
 
 
+Пример (Basic):
+curl -k -u admin:Passwd0rd1! "https://localhost:8080/admin/sessions"
 
+> Внимание: endpoint возвращает `refreshToken` в явном виде — это чувствительные данные; для продакшена обычно токен не отдают или маскируют/хэшируют. [file:108]
+
+## Тестирование
+
+### Postman
+- `Quiz-API-Tests.postman_collection.json` — набор тестов API. [file:103]
+- `Quiz-API-Business-Operations-Tests.postman_collection.json` — бизнес-сценарии (создание полного квиза → редактирование → публикация → прохождение → аналитика). [file:103]
+
+Импортируй коллекции в Postman и настрой переменные окружения (baseUrl, токены/учётные данные). [file:103]
+
+## Примечания по безопасности
+
+- Refresh-токены хранятся как `UserSession` в БД и имеют статусы `ACTIVE/REVOKED/EXPIRED`. [file:107]
+- При refresh используется ротация: старый refresh становится `REVOKED`, создаётся новый refresh и новая access-пара. [file:107]
+- Для отзыва всех сессий пользователя предусмотрена логика `revokeAllSessions(...)`. [file:107]
