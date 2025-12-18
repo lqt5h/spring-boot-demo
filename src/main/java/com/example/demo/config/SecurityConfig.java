@@ -46,41 +46,57 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         http
                 .csrf(csrf -> csrf.disable())
                 .httpBasic(Customizer.withDefaults())
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
                 .authorizeHttpRequests(auth -> auth
-                        // Публичные эндпоинты
-                        .requestMatchers("/", "/hello", "/auth/register", "/auth/login").permitAll()
+
+                        // Public endpoints
+                        .requestMatchers("/", "/hello", "/auth/register", "/auth/login", "/auth/refresh").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
 
-                        // Квизы
-                        .requestMatchers(HttpMethod.GET, "/api/quizzes/**")
-                        .hasAnyRole("USER", "TEACHER", "ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/quizzes")
-                        .hasAnyRole("TEACHER", "ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/quizzes/**")
-                        .hasAnyRole("TEACHER", "ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/quizzes/**")
-                        .hasRole("ADMIN")
+                        // ===== TEACHER endpoints =====
+                        .requestMatchers("/api/teacher/**").hasAnyRole("TEACHER", "ADMIN")
 
-                        // Попытки
-                        .requestMatchers("/api/attempts/**")
-                        .hasAnyRole("USER", "TEACHER", "ADMIN")
+                        // Quizzes
+                        .requestMatchers(HttpMethod.GET, "/api/quizzes/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/quizzes").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/quizzes/**").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/quizzes/**").hasRole("ADMIN")
 
+                        // Questions
+                        .requestMatchers(HttpMethod.GET, "/api/questions/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/questions/**").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/questions/**").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/questions/**").hasAnyRole("TEACHER", "ADMIN")
 
-                        // Пользователи и прогресс
-                        .requestMatchers(HttpMethod.GET, "/users/*/progress")
-                        .hasAnyRole("USER", "TEACHER", "ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/users/**")
-                        .hasAnyRole("USER", "TEACHER", "ADMIN")
+                        // Answer options
+                        .requestMatchers(HttpMethod.GET, "/api/answer-options/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/answer-options/**").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/answer-options/**").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/answer-options/**").hasAnyRole("TEACHER", "ADMIN")
 
-                        // Всё остальное — только аутентифицированным
+                        // Attempts
+                        .requestMatchers(HttpMethod.PUT, "/api/attempts/*").hasAnyRole("TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/attempts/*/answers").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers("/api/attempts/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+
+                        // Users
+                        .requestMatchers(HttpMethod.POST, "/api/users/create").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/users/*/progress").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/users/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/users/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAnyRole("USER", "TEACHER", "ADMIN")
+
+                        // Everything else
                         .anyRequest().authenticated()
+
                 )
-                // Для H2-консоли
+
+                // H2 console
                 .headers(headers -> headers.frameOptions(frame -> frame.disable()));
 
         return http.build();

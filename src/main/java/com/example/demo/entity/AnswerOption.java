@@ -1,18 +1,26 @@
 package com.example.demo.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
 import jakarta.persistence.*;
 
 @Entity
 public class AnswerOption {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
     private String text;
+
     private boolean isCorrect;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "question_id")
+    @JsonBackReference // AnswerOption -> Question НЕ сериализуем (иначе снова потянет Quiz)
     private Question question;
+
+    public AnswerOption() {
+    }
 
     public Long getId() {
         return id;
@@ -34,8 +42,8 @@ public class AnswerOption {
         return isCorrect;
     }
 
-    public void setCorrect(boolean isCorrect) {
-        this.isCorrect = isCorrect;
+    public void setCorrect(boolean correct) {
+        isCorrect = correct;
     }
 
     public Question getQuestion() {

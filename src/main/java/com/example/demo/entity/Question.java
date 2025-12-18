@@ -1,21 +1,32 @@
 package com.example.demo.entity;
 
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
 import jakarta.persistence.*;
+
+import java.util.ArrayList;
 import java.util.List;
 
 @Entity
 public class Question {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
     private String text;
 
-    @ManyToOne
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "quiz_id")
+    @JsonBackReference // Question -> Quiz НЕ сериализуем (разрыв цикла)
     private Quiz quiz;
 
-    @OneToMany(mappedBy = "question", cascade = CascadeType.ALL)
-    private List<AnswerOption> answerOptions;
+    @OneToMany(mappedBy = "question", cascade = CascadeType.ALL, orphanRemoval = true)
+    @JsonManagedReference // Question -> AnswerOption сериализуем
+    private List<AnswerOption> answerOptions = new ArrayList<>();
+
+    public Question() {
+    }
 
     public Long getId() {
         return id;
@@ -46,6 +57,6 @@ public class Question {
     }
 
     public void setAnswerOptions(List<AnswerOption> answerOptions) {
-        this.answerOptions = answerOptions;
+        this.answerOptions = (answerOptions == null) ? new ArrayList<>() : answerOptions;
     }
 }
