@@ -10,7 +10,6 @@ import com.example.demo.repository.AttemptRepository;
 import com.example.demo.repository.UserRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
@@ -40,11 +39,14 @@ public class AttemptController {
     }
 
     // ===== DTOs =====
+
     public static class StartAttemptRequest {
         private Long userId;
         private Long quizId;
+
         public Long getUserId() { return userId; }
         public void setUserId(Long userId) { this.userId = userId; }
+
         public Long getQuizId() { return quizId; }
         public void setQuizId(Long quizId) { this.quizId = quizId; }
     }
@@ -53,16 +55,20 @@ public class AttemptController {
         private String details;
         private Long score;
         private String finishedAt; // ISO: 2025-12-17T15:30:00
+
         public String getDetails() { return details; }
         public void setDetails(String details) { this.details = details; }
+
         public Long getScore() { return score; }
         public void setScore(Long score) { this.score = score; }
+
         public String getFinishedAt() { return finishedAt; }
         public void setFinishedAt(String finishedAt) { this.finishedAt = finishedAt; }
     }
 
     public static class UpdateAttemptAnswersRequest {
         private List<AnswerItem> answers;
+
         public List<AnswerItem> getAnswers() { return answers; }
         public void setAnswers(List<AnswerItem> answers) { this.answers = answers; }
     }
@@ -70,25 +76,41 @@ public class AttemptController {
     public static class AnswerItem {
         private Long questionId;
         private Long selectedOptionId;
+
         public Long getQuestionId() { return questionId; }
         public void setQuestionId(Long questionId) { this.questionId = questionId; }
+
         public Long getSelectedOptionId() { return selectedOptionId; }
         public void setSelectedOptionId(Long selectedOptionId) { this.selectedOptionId = selectedOptionId; }
     }
 
     // ===== helpers =====
+
     private Authentication auth() {
         return SecurityContextHolder.getContext().getAuthentication();
     }
 
-    private boolean hasRole(String role) {
+    private User currentUserOr401() {
         Authentication a = auth();
-        if (a == null || a.getAuthorities() == null) return false;
-        return a.getAuthorities().contains(new SimpleGrantedAuthority("ROLE_" + role));
+        if (a == null || a.getName() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+        }
+        String username = a.getName();
+
+        // предполагается, что в UserRepository есть findByUsername(String)
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+    }
+
+    private boolean isTeacherOrAdmin(User u) {
+        if (u == null || u.getRole() == null) return false;
+        String role = u.getRole().trim().toUpperCase();
+        return "TEACHER".equals(role) || "ADMIN".equals(role);
     }
 
     private void requireTeacherOrAdmin() {
-        if (!hasRole("TEACHER") && !hasRole("ADMIN")) {
+        User u = currentUserOr401();
+        if (!isTeacherOrAdmin(u)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "TEACHER or ADMIN only");
         }
     }
@@ -99,19 +121,17 @@ public class AttemptController {
     }
 
     private void requireAttemptOwnerOrTeacherOrAdmin(Attempt attempt) {
-        Authentication a = auth();
-        if (a == null || a.getName() == null) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
-        }
+        User me = currentUserOr401();
 
         // TEACHER/ADMIN может править любые попытки
-        if (hasRole("TEACHER") || hasRole("ADMIN")) return;
+        if (isTeacherOrAdmin(me)) return;
 
         // иначе только владелец
         if (attempt.getUser() == null || attempt.getUser().getUsername() == null) {
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Attempt has no owner");
         }
-        if (!attempt.getUser().getUsername().equals(a.getName())) {
+
+        if (!attempt.getUser().getUsername().equals(me.getUsername())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Not your attempt");
         }
     }
@@ -127,29 +147,32 @@ public class AttemptController {
     // POST /api/attempts/start - начать попытку
     @PostMapping("/start")
     public Attempt startAttempt(@RequestBody StartAttemptRequest request) {
-        // стартовать попытку может владелец или TEACHER/ADMIN (по твоей логике учитель может управлять всем)
-        // но на практике обычно стартует сам USER. Здесь оставляем без жесткой проверки ролей.
         User user = userRepository.findById(request.getUserId())
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found: " + request.getUserId()));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "User not found: " + request.getUserId()
+                ));
 
         Attempt attempt = new Attempt();
         attempt.setUser(user);
         attempt.setQuizId(request.getQuizId());
         attempt.setDetails(null);
-        attempt.setScore(0);
+        attempt.setScore(0L);
         attempt.setFinishedAt(null);
+
         return attemptRepository.save(attempt);
     }
 
     // PUT /api/attempts/{id}/answers - редактировать ответы
-    // USER может только свою и пока не finished; TEACHER/ADMIN может любую (даже после finished — по твоему ТЗ)
+    // USER может только свою и пока не finished; TEACHER/ADMIN может любую (в т.ч. после finished)
     @PutMapping("/{id}/answers")
     public Attempt updateAttemptAnswers(@PathVariable Long id, @RequestBody UpdateAttemptAnswersRequest request) {
         Attempt attempt = getAttemptOr404(id);
         requireAttemptOwnerOrTeacherOrAdmin(attempt);
 
+        User me = currentUserOr401();
+        boolean teacherOrAdmin = isTeacherOrAdmin(me);
+
         // ограничение "пока не закончена попытка" только для USER
-        boolean teacherOrAdmin = hasRole("TEACHER") || hasRole("ADMIN");
         if (!teacherOrAdmin && attempt.getFinishedAt() != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Attempt already finished");
         }
@@ -160,11 +183,17 @@ public class AttemptController {
 
         for (AnswerItem item : request.getAnswers()) {
             if (item == null || item.getQuestionId() == null || item.getSelectedOptionId() == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Each answer must contain questionId and selectedOptionId");
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "Each answer must contain questionId and selectedOptionId"
+                );
             }
 
             AnswerOption option = answerOptionRepository.findById(item.getSelectedOptionId())
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "AnswerOption not found: " + item.getSelectedOptionId()));
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatus.NOT_FOUND,
+                            "AnswerOption not found: " + item.getSelectedOptionId()
+                    ));
 
             if (option.getQuestion() == null || option.getQuestion().getId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "AnswerOption has no question");
@@ -182,12 +211,14 @@ public class AttemptController {
             attemptAnswer.setQuestion(option.getQuestion());
             attemptAnswer.setSelectedOption(option);
             attemptAnswer.setCorrect(option.isCorrect());
+
             attemptAnswerRepository.save(attemptAnswer);
         }
 
         long score = recalcScore(id);
         attempt.setScore(score);
         attempt.setDetails("Answers updated");
+
         return attemptRepository.save(attempt);
     }
 
@@ -197,7 +228,9 @@ public class AttemptController {
         Attempt attempt = getAttemptOr404(id);
         requireAttemptOwnerOrTeacherOrAdmin(attempt);
 
-        boolean teacherOrAdmin = hasRole("TEACHER") || hasRole("ADMIN");
+        User me = currentUserOr401();
+        boolean teacherOrAdmin = isTeacherOrAdmin(me);
+
         if (!teacherOrAdmin && attempt.getFinishedAt() != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Attempt already finished");
         }
@@ -206,6 +239,7 @@ public class AttemptController {
         attempt.setScore(score);
         attempt.setFinishedAt(LocalDateTime.now());
         attempt.setDetails("Submitted with score: " + score);
+
         return attemptRepository.save(attempt);
     }
 
@@ -221,15 +255,18 @@ public class AttemptController {
         return attemptRepository.findByUserId(userId);
     }
 
-    // PUT /api/attempts/{id} - изменить попытку (теперь TEACHER/ADMIN)
+    // PUT /api/attempts/{id} - изменить попытку (ТОЛЬКО TEACHER/ADMIN)
     @PutMapping("/{id}")
     public Attempt updateAttempt(@PathVariable Long id, @RequestBody UpdateAttemptRequest request) {
         requireTeacherOrAdmin();
+
         Attempt attempt = getAttemptOr404(id);
 
-        if (request.getDetails() != null) attempt.setDetails(request.getDetails());
-        if (request.getScore() != null) attempt.setScore(request.getScore());
-        if (request.getFinishedAt() != null) attempt.setFinishedAt(LocalDateTime.parse(request.getFinishedAt()));
+        if (request != null) {
+            if (request.getDetails() != null) attempt.setDetails(request.getDetails());
+            if (request.getScore() != null) attempt.setScore(request.getScore());
+            if (request.getFinishedAt() != null) attempt.setFinishedAt(LocalDateTime.parse(request.getFinishedAt()));
+        }
 
         return attemptRepository.save(attempt);
     }
